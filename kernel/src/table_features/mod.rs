@@ -147,9 +147,12 @@ pub(crate) enum TableFeature {
     #[strum(serialize = "timestampNanos")]
     #[serde(rename = "timestampNanos")]
     TimestampNanos,
-    /// timestamps without timezone support
-    #[strum(serialize = "timestampNtz")]
-    #[serde(rename = "timestampNtz")]
+    /// Timestamps without timezone support, canonically named `timestampNtz` in the Delta protocol.
+    ///
+    /// Accepts the nonstandard `timestampWithoutTimezone` spelling found in existing tables for
+    /// read compatibility; output uses the canonical name.
+    #[strum(to_string = "timestampNtz", serialize = "timestampWithoutTimezone")]
+    #[serde(rename = "timestampNtz", alias = "timestampWithoutTimezone")]
     TimestampWithoutTimezone,
     // Allow columns to change type
     TypeWidening,
@@ -796,6 +799,24 @@ pub(crate) fn format_features(features: &[TableFeature]) -> String {
 mod tests {
     use super::*;
 
+    #[rstest::rstest]
+    fn test_timestamp_ntz_feature_from_str(
+        #[values("timestampNtz", "timestampWithoutTimezone")] name: &str,
+    ) {
+        assert_eq!(
+            name.into_table_feature(),
+            TableFeature::TimestampWithoutTimezone
+        );
+    }
+
+    #[rstest::rstest]
+    fn test_timestamp_ntz_feature_from_serde(
+        #[values("timestampNtz", "timestampWithoutTimezone")] name: &str,
+    ) {
+        let feature: TableFeature = serde_json::from_value(serde_json::json!(name)).unwrap();
+        assert_eq!(feature, TableFeature::TimestampWithoutTimezone);
+    }
+
     #[test]
     fn test_unknown_features() {
         let mixed_reader = &[
@@ -869,7 +890,12 @@ mod tests {
 
             // strum
             assert_eq!(feature.to_string(), expected);
+            assert_eq!(feature.as_ref(), expected);
             assert_eq!(feature, expected.into_table_feature());
+            assert_eq!(
+                Scalar::from(feature.clone()),
+                Scalar::String(expected.to_owned())
+            );
 
             // json
             let serialized = serde_json::to_string(&feature).unwrap();
